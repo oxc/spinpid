@@ -1,0 +1,5 @@
+
+# for cpu temp
+sysctl
+
+
