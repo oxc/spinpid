@@ -1,5 +1,6 @@
-from typing import List, Optional, Union, TypeVar, Generic, Tuple, Iterator, Iterable, ClassVar
+from typing import List, Optional, Union, TypeVar, Generic, Tuple, Iterator, Iterable, ClassVar, Any
 from math import ceil
+import sys
 
 try:
     from humanfriendly.terminal import ansi_wrap, terminal_supports_colors
@@ -180,8 +181,9 @@ class ColumnGroup(BaseChildElement, LabelledTableElement, BaseTableParent[Column
         return width
 
 class TablePrinter(BaseTableParent[ColumnGroup]):
-    def __init__(self):
+    def __init__(self, out=sys.stdout):
         super().__init__()
+        self._out = out
         self._needs_redraw_header = True
         self._header = None
 
@@ -200,15 +202,17 @@ class TablePrinter(BaseTableParent[ColumnGroup]):
 
     def _print_header(self) -> None:
         width = self.width # make sure width is calculated
-        print('┏━' + '━┳━'.join('━' * group.width for group in self) + '━┓')
-        print('┃ ' + ' ┃ '.join(group.centered_label for group in self) + ' ┃')
-        print('┣━' + '━╋━'.join('━┯━'.join('━' * column.width for column in group) for group in self) + '━┫')
-        print('┃ ' + ' ┃ '.join(' │ '.join(column.centered_label for column in group) for group in self) + ' ┃')
-        print('┡━' + '━╇━'.join('━┿━'.join('━' * column.width for column in group) for group in self) + '━┩')
+        self._print('┏━' + '━┳━'.join('━' * group.width for group in self) + '━┓')
+        self._print('┃ ' + ' ┃ '.join(group.centered_label for group in self) + ' ┃')
+        self._print('┣━' + '━╋━'.join('━┯━'.join('━' * column.width for column in group) for group in self) + '━┫')
+        self._print('┃ ' + ' ┃ '.join(' │ '.join(column.centered_label for column in group) for group in self) + ' ┃')
+        self._print('┡━' + '━╇━'.join('━┿━'.join('━' * column.width for column in group) for group in self) + '━┩')
 
     def _print_values(self) -> None:
-        print('│ ' + ' │ '.join(' ┊ '.join(column.pop_value() for column in group) for group in self) + ' │')
+        self._print('│ ' + ' │ '.join(' ┊ '.join(column.pop_value() for column in group) for group in self) + ' │')
         
+    def _print(self, s: str, **kwargs: Any) -> None:
+        print(s, file=self._out, **kwargs)
 
     def print_values(self, values: Tuple) -> None:
         for i, (group_label, group_values) in enumerate(values):

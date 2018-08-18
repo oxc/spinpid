@@ -7,9 +7,9 @@ from spinpid.sensors.cpu.ipmitool import maxSystemTemperatureSource
 from spinpid.sensors.disk.freenas import meanDiskTemperatureSource
 from spinpid.util.argparse import enum_parser, enum_choices, enum_metavar
 from spinpid.util.table import TablePrinter, Value
-from argparse import ArgumentParser, RawDescriptionHelpFormatter
+from argparse import ArgumentParser, RawDescriptionHelpFormatter, FileType
 from concurrent.futures import FIRST_EXCEPTION
-from asyncio import CancelledError
+from asyncio import sleep, CancelledError
 import asyncio
 import copy
 import functools
@@ -70,6 +70,8 @@ def parse():
     parser.add_argument('--reversed', action='store_true', dest='reversed', help="Use with --cpu/--disk if disk fans are attached to CPU zone (FAN0,FAN1,etc) and cpu fans to PERIPHERAL zone (FANA,FANB,etc)")
     parser.add_argument('--dry-run', '-n', action='store_true', help="Don't adjust the fans at all, just print what would have been done.")
     parser.add_argument('--verbose', '-v', action='count', dest='verbosity', default=0, help="Increase verbosity (can be passed multiple times)")
+    parser.add_argument('--log-interval', action='store', type=int, default=60, help="How often to output the current state (in seconds)")
+    parser.add_argument('--log-file', action='store', type=FileType('w', encoding='UTF-8'), default='-', help="File to log to (defaults to stdout)")
     
     args, remaining = parser.parse_known_args()
     
@@ -148,10 +150,10 @@ class SpinPidZone:
         await controller.setup()
         self.controller = controller
 
-    async def run(self, cycle_callback):
+    async def run(self):
         logger.info(f"Running {self.label}")
         try:
-            await self.controller.run(cycle_callback=functools.partial(self._controller_callback, cycle_callback))
+            await self.controller.run(cycle_callback=self._controller_callback)
         except CancelledError:
             logger.warn("Zone %s got cancelled.", self.zone_name)
         except Exception:
@@ -161,11 +163,10 @@ class SpinPidZone:
     def stop(self):
         self.controller.keep_running = False
 
-    async def _controller_callback(self, log_callback, controller):
+    async def _controller_callback(self, controller):
         self._last_temperature = controller.last_temperature
         self._last_duty = f"{controller.last_duty}%"
         self._stale = False
-        await log_callback(self)
 
     async def get_current_state(self):
         stale = self._stale
@@ -186,31 +187,35 @@ class SpinPid:
         self.zones = tuple(SpinPidZone(zone_name, args.zone_args[zone_name]) for zone_name in args.zones)
         self.dry_run = args.dry_run
         self.verbosity = args.verbosity
-        self.table_printer = TablePrinter()
+        self.log_interval = args.log_interval
+        self.table_printer = TablePrinter(args.log_file)
 
-    async def log_state(self, fan_control, zone):
-        if any(z._stale is None for z in self.zones):
-            return
-        await fan_control.update()
-        zones_state = [
-            (z.label, await z.get_current_state()) for z in self.zones
-        ]
-        self.table_printer.print_values(zones_state)
+    async def log_state(self, fan_control):
+        while True:
+            if any(z._stale is None for z in self.zones):
+                await sleep(1)
+                continue
+            await fan_control.update()
+            zones_state = [
+                (z.label, await z.get_current_state()) for z in self.zones
+            ]
+            self.table_printer.print_values(zones_state)
+            await sleep(self.log_interval)
 
     async def run_async(self):
         '''load the fan control, then aggregate all zones + our logging coroutine'''
         fan_control = await get_fan_control(dry_run=self.dry_run)
         old_mode = None
         try:
-            await asyncio.wait(list(zone.setup(fan_control) for zone in self.zones), return_when=FIRST_EXCEPTION)
+            await asyncio.wait([ zone.setup(fan_control) for zone in self.zones ], return_when=FIRST_EXCEPTION)
             old_mode = await fan_control.set_manual_mode()
             await sleep(1)
-            await asyncio.wait(list(zone.run(functools.partial(self.log_state, fan_control)) for zone in self.zones), return_when=FIRST_EXCEPTION)
+            await asyncio.wait([ zone.run() for zone in self.zones ] + [ self.log_state(fan_control) ], return_when=FIRST_EXCEPTION)
         except CancelledError:
             pass
         finally:
             if old_mode:
-                await asyncio.sleep(1)
+                await sleep(1)
                 await fan_control.set_mode(old_mode)
 
     def run(self):
