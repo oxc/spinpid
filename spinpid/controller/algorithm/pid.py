@@ -7,8 +7,10 @@ class PID(Algorithm):
     k_i: float
     k_d: float
 
-    last_error: float
+    last_term_i: float
+
     last_time: float
+    last_error: float
 
     def __init__(self, set_point: float, p: float = 4.0, i: float = 0.0, d: float = 40.0, windup_guard: float = 20.0) -> None:
         self.set_point = set_point
@@ -17,6 +19,9 @@ class PID(Algorithm):
         self.k_d = d
         self.windup_guard = windup_guard
 
+        self.reset()
+
+    def reset(self):
         self.last_term_i = 0.0
         
         self.last_time = time.time()
