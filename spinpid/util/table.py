@@ -213,6 +213,7 @@ class TablePrinter(BaseTableParent[ColumnGroup]):
         
     def _print(self, s: str, **kwargs: Any) -> None:
         print(s, file=self._out, **kwargs)
+        self._out.flush()
 
     def print_values(self, values: Tuple) -> None:
         for i, (group_label, group_values) in enumerate(values):
