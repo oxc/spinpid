@@ -2,7 +2,7 @@ from spinpid.fancontrol.ipmitool import ZoneId, get_fan_control
 from spinpid.controller import Controller
 from spinpid.controller.algorithm.pid import PID
 from spinpid.controller.algorithm.parser import AlgorithmParser
-from spinpid.sensors.cpu.sysctl import maxCPUTemperatureSource
+from spinpid.sensors.cpu.freenas import maxCPUTemperatureSource
 from spinpid.sensors.cpu.ipmitool import maxSystemTemperatureSource
 from spinpid.sensors.disk.freenas import meanDiskTemperatureSource
 from spinpid.util.argparse import enum_parser, enum_choices, enum_metavar
@@ -66,7 +66,7 @@ def parse():
         'disks': ("Disks", 300, 'PID(35)', 'MEAN_DISK', 'PERIPHERAL', "Enable disks fan control."),
     }
     for zone, (label, interval, algorithm, temp_source, fan_zone, help_prefix) in shortcuts.items():
-        parser.add_argument(f'--{zone}', action='append_const', dest='shortcuts', const=zone, help=help_prefix + f"\nEquivalent to --zone={zone} --zone-label=\"{label}\" --zone-interval={interval} --{zone}-algorithm={algorithm} --{zone}-temperature-source={temp_source} --cpu-fan-zone={fan_zone}")
+        parser.add_argument(f'--{zone}', action='append_const', dest='shortcuts', const=zone, help=help_prefix + f"\nEquivalent to --zone={zone} --zone-label=\"{label}\" --zone-interval={interval} --{zone}-algorithm={algorithm} --{zone}-temperature-source={temp_source} --{zone}-fan-zone={fan_zone}")
     parser.add_argument('--reversed', action='store_true', dest='reversed', help="Use with --cpu/--disk if disk fans are attached to CPU zone (FAN0,FAN1,etc) and cpu fans to PERIPHERAL zone (FANA,FANB,etc)")
     parser.add_argument('--dry-run', '-n', action='store_true', help="Don't adjust the fans at all, just print what would have been done.")
     parser.add_argument('--verbose', '-v', action='count', dest='verbosity', default=0, help="Increase verbosity (can be passed multiple times)")
@@ -228,7 +228,7 @@ class SpinPid:
             print("Termination requested by user, aborting...", file=sys.stderr)
             for zone in self.zones:
                 zone.stop()
-            for task in asyncio.Task.all_tasks(loop=loop):
+            for task in asyncio.all_tasks(loop=loop):
                 task.cancel()
 
         def handle_term():
@@ -246,7 +246,7 @@ class SpinPid:
         future.add_done_callback(done_callback)
         try:
             loop.run_forever()
-            for task in asyncio.Task.all_tasks(loop=loop):
+            for task in asyncio.all_tasks(loop=loop):
                 if task.done() and not task.cancelled():
                     e = task.exception()
                     if e:

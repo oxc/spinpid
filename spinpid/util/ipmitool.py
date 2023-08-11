@@ -18,7 +18,7 @@ class SDREntry:
 
     @staticmethod
     def split_value(raw_value):
-        if raw_value == "no reading":
+        if raw_value.lower() == "no reading":
             return (None, None)
         chunks = raw_value.split(None, 1)
         if len(chunks) == 1:
