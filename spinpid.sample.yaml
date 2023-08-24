@@ -1,0 +1,71 @@
+interfaces:
+  truenas:
+    driver: spinpid.interfaces.truenas.TrueNAS
+  ipmi:
+    driver: spinpid.interfaces.ipmi.IPMI
+  gpu:
+    driver: spinpid.interfaces.nvidia.NvidiaSMI
+  corsair:
+    driver: spinpid.interfaces.liquidctl.LiquidCTL
+    name: Corsair Commander Pro
+
+
+sensors:
+  cpu:
+    interface:
+      id: truenas
+      channel: cpu
+    interval: 2
+  system:
+    interface:
+      id: ipmi
+      channel: system
+    interval: 2
+  gpu:
+    interface:
+      id: gpu
+      channel: 0
+    interval: 2
+  disks:
+    interface:
+      id: truenas
+      channel: disks
+    interval: 30
+
+
+fans:
+  cpu:
+    interface:
+      id: ipmi
+      channel: cpu
+    algorithms:
+      cpu: LinearDecrease(Quadratic(sensors.cpu, 65,80))
+  gpu:
+    interface:
+      id: corsair
+      channel: fan3
+    min: 0
+    algorithms:
+      gpu: LinearDecrease(Quadratic(sensors.gpu, 60,80))
+  exhaust:
+    interface:
+      id: corsair
+      channel: fan2
+    min: 15
+    algorithms:
+      cpu: LinearDecrease(Quadratic(sensors.cpu, 65,80))
+  intake1:
+    interface:
+      id: corsair
+      channel: fan1
+    min: 15
+    algorithms: &intake_algorithms
+      disks: PID(sensors.disks, 40)
+      cpu: LinearDecrease(Quadratic(sensors.cpu, 70,80))
+      match_exhaust: fans.exhaust + 10
+  intake2:
+    interface:
+      id: ipmi
+      channel: peripheral
+    min: 15
+    algorithms: *intake_algorithms

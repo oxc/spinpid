@@ -1,6 +1,6 @@
 
 class defaultdict(dict):
-    '''dict subclass that provides a default *based on the missing key*'''
+    """dict subclass that provides a default *based on the missing key*"""
 
     def __init__(self, default_factory):
         self.default_factory = default_factory

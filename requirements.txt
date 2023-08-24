@@ -1,6 +1,10 @@
+PyYAML
+pydantic
+typing-extensions
 
 # for cpu temp
-sysctl
+# sysctl
 
+liquidctl
 
 humanfriendly

@@ -4,11 +4,13 @@ import sys
 
 try:
     from humanfriendly.terminal import ansi_wrap, terminal_supports_colors
+
     have_ansi = terminal_supports_colors()
 except ImportError:
     have_ansi = False
 
-__all__ = ['TablePrinter', 'TableData']
+__all__ = ['TablePrinter', 'Value']
+
 
 class BaseTableElement:
     _width: Optional[int]
@@ -31,6 +33,7 @@ class BaseTableElement:
     def _trigger_redraw_header(self) -> None:
         raise NotImplementedError
 
+
 class BaseChildElement(BaseTableElement):
     _width: Optional[int]
 
@@ -45,7 +48,10 @@ class BaseChildElement(BaseTableElement):
     def _trigger_redraw_header(self) -> None:
         self._parent._trigger_redraw_header()
 
+
 T = TypeVar('T', bound=BaseChildElement)
+
+
 class BaseTableParent(BaseTableElement, Generic[T]):
     _columns: List[T]
 
@@ -78,6 +84,7 @@ class BaseTableParent(BaseTableElement, Generic[T]):
     def _create_child(self) -> T:
         raise NotImplementedError
 
+
 class LabelledTableElement(BaseTableElement):
     def __init__(self) -> None:
         super().__init__()
@@ -108,7 +115,7 @@ class Value:
         self.stale = stale
 
     def _format_value(self, width: int) -> str:
-        value = self.value
+        value = self.value if self.value is not None else 'N/A'
         if isinstance(value, float):
             return f"{value:#{width}.2f}"
         return f"{value:>{width}}"
@@ -120,7 +127,9 @@ class Value:
         else:
             return value if not self.stale else f"({value})"
 
+
 Value.NONE = Value('', stale=False)
+
 
 class Column(BaseChildElement, LabelledTableElement):
     _value: Value
@@ -148,13 +157,14 @@ class Column(BaseChildElement, LabelledTableElement):
         value = self._value.format(self.width)
         self._value = Value.NONE
         return value
-        
+
     def _calculate_width(self) -> int:
         lenlabel = len(self.label)
         width = max(self.expected_width, self._max_encountered_width, lenlabel)
-        #if lenlabel % 2 == 1 and width % 2 == 0:
+        # if lenlabel % 2 == 1 and width % 2 == 0:
         #    width += 1
         return width
+
 
 class ColumnGroup(BaseChildElement, LabelledTableElement, BaseTableParent[Column]):
     def __init__(self, parent: BaseTableParent) -> None:
@@ -165,11 +175,11 @@ class ColumnGroup(BaseChildElement, LabelledTableElement, BaseTableParent[Column
 
     def _calculate_width(self) -> int:
         separator_width = 1
-        column_padding = 2 # left and right
+        column_padding = 2  # left and right
         num_cols = len(self._columns)
         cols_width = (
-            sum(c.width for c in self._columns) 
-            + (num_cols-1) * (column_padding + separator_width) # outer padding does not count
+                sum(c.width for c in self._columns)
+                + (num_cols - 1) * (column_padding + separator_width)  # outer padding does not count
         )
         header_width = len(self.label)
         width = cols_width
@@ -180,28 +190,30 @@ class ColumnGroup(BaseChildElement, LabelledTableElement, BaseTableParent[Column
                 column._width = column.width + extra_padding
         return width
 
+
 class TablePrinter(BaseTableParent[ColumnGroup]):
-    def __init__(self, out=sys.stdout):
+    def __init__(self, out=sys.stdout, redraw_header_after=None):
         super().__init__()
         self._out = out
-        self._needs_redraw_header = True
+        self._needs_redraw_header_in = 0
         self._header = None
+        self.redraw_header_after = redraw_header_after
 
     def _create_child(self) -> ColumnGroup:
         return ColumnGroup(self)
-        
+
     def _trigger_recalculate_width(self) -> None:
         super()._trigger_recalculate_width()
         self._trigger_redraw_header()
 
     def _trigger_redraw_header(self) -> None:
-        self._needs_redraw_header = True
+        self._needs_redraw_header_in = 0
 
     def _calculate_width(self):
         return sum(group.width for group in self) + 1
 
     def _print_header(self) -> None:
-        width = self.width # make sure width is calculated
+        width = self.width  # make sure width is calculated
         self._print('┏━' + '━┳━'.join('━' * group.width for group in self) + '━┓')
         self._print('┃ ' + ' ┃ '.join(group.centered_label for group in self) + ' ┃')
         self._print('┣━' + '━╋━'.join('━┯━'.join('━' * column.width for column in group) for group in self) + '━┫')
@@ -210,12 +222,12 @@ class TablePrinter(BaseTableParent[ColumnGroup]):
 
     def _print_values(self) -> None:
         self._print('│ ' + ' │ '.join(' ┊ '.join(column.pop_value() for column in group) for group in self) + ' │')
-        
+
     def _print(self, s: str, **kwargs: Any) -> None:
         print(s, file=self._out, **kwargs)
         self._out.flush()
 
-    def print_values(self, values: Tuple) -> None:
+    def print_values(self, values: Iterable[Tuple[str, Iterable[Tuple[str, Value]]]]) -> None:
         for i, (group_label, group_values) in enumerate(values):
             group = self[i]
             group.label = group_label
@@ -223,14 +235,13 @@ class TablePrinter(BaseTableParent[ColumnGroup]):
                 col = group[j]
                 col.label = col_label
                 col.value = col_value
-        if self._needs_redraw_header:
-            self._needs_redraw_header = False
+        if self._needs_redraw_header_in == 0:
+            self._needs_redraw_header_in = self.redraw_header_after
             self._print_header()
+        elif self._needs_redraw_header_in is not None:
+            self._needs_redraw_header_in -= 1
         self._print_values()
-
-
 
 
 if __name__ == '__main__':
     pass
-
