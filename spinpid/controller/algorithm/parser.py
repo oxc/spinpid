@@ -44,6 +44,9 @@ class KnownValuesProxy:
     def __getattr__(self, item):
         return self.expression_class(item, self.last_known_values)
 
+    def __getitem__(self, item):
+        return self.expression_class(item, self.last_known_values)
+
 
 class AlgorithmParser:
     algorithms: Dict[str, AlgorithmDefinition]
@@ -73,9 +76,11 @@ class AlgorithmParser:
             raise InvalidAlgorithmExpression(f"{filename} code too long")
 
         code = compile(algo_str, filename, 'eval')
-        # create a collector callable for each algorithm that simply collects the args and kwargs
-        eval_globals: dict[str, Any]
-        eval_globals = {name: alg.get_create_function(context) for name, alg in self.algorithms.items()}
+        eval_globals: dict[str, Any] = {}
+        # add a global for each sensor and fan id for easier reference (e.g. sensors[CPU])
+        eval_globals.update({name: name for name in last_known_values.sensor_temperature_values.keys()})
+        eval_globals.update({name: name for name in last_known_values.fan_duty_values.keys()})
+        eval_globals.update({name: alg.get_create_function(context) for name, alg in self.algorithms.items()})
         eval_globals['__builtins__'] = {}
         eval_globals['sensors'] = KnownValuesProxy(SensorValue, last_known_values)
         eval_globals['fans'] = KnownValuesProxy(FanDutyValue, last_known_values)

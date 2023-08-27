@@ -11,22 +11,22 @@ interfaces:
 
 
 sensors:
-  cpu:
+  CPU:
     interface:
       id: truenas
       channel: cpu
     interval: 2
-  system:
+  System:
     interface:
       id: ipmi
       channel: system
     interval: 2
-  gpu:
+  GPU:
     interface:
       id: gpu
       channel: 0
     interval: 2
-  disks:
+  Disks:
     interface:
       id: truenas
       channel: disks
@@ -34,36 +34,36 @@ sensors:
 
 
 fans:
-  cpu:
+  CPU:
     interface:
       id: ipmi
       channel: cpu
     algorithms:
-      cpu: LinearDecrease(Quadratic(sensors.cpu, 65,80))
-  gpu:
+      CPU: LinearDecrease(Quadratic(sensors[CPU], 65,80))
+  GPU:
     interface:
       id: corsair
       channel: fan3
     min: 0
     algorithms:
-      gpu: LinearDecrease(Quadratic(sensors.gpu, 60,80))
-  exhaust:
+      GPU: LinearDecrease(Quadratic(sensors[GPU], 60,80))
+  Exhaust:
     interface:
       id: corsair
       channel: fan2
     min: 15
     algorithms:
-      cpu: LinearDecrease(Quadratic(sensors.cpu, 65,80))
-  intake1:
+      cpu: LinearDecrease(Quadratic(sensors[CPU], 65,80))
+  Intake 1:
     interface:
       id: corsair
       channel: fan1
     min: 15
     algorithms: &intake_algorithms
-      disks: PID(sensors.disks, 40)
-      cpu: LinearDecrease(Quadratic(sensors.cpu, 70,80))
-      match_exhaust: fans.exhaust + 10
-  intake2:
+      Disks: PID(sensors[Disks], 40)
+      CPU: LinearDecrease(Quadratic(sensors[CPU], 70,80))
+      Match Exhaust: fans.Exhaust + 10
+  Intake 2:
     interface:
       id: ipmi
       channel: peripheral

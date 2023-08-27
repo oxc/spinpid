@@ -59,7 +59,7 @@ class SpinPid:
     def log_state(self):
         values = self.controller.values
         sensor_values = ("Sensors", list(values.get_sensor_display_values()))
-        fan_values = [(f"Fan {fan_id}", [(fan_id, duty_value)]
+        fan_values = [(f"Fan {fan_id}", [('Duty', duty_value)]
             + [(fan.name, Value(f"{fan.rpm} RPM", stale=False)) for fan in self.controller.fans[fan_id].fan_zone.fans])
             for fan_id, duty_value in self.controller.values.get_fan_display_values()
         ]
