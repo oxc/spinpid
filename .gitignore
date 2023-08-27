@@ -2,6 +2,6 @@
 
 .idea
 
-venv
-
+*.tar
 rsync*.sh
+venv*
