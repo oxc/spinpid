@@ -26,10 +26,19 @@ sensors:
       id: gpu
       channel: 0
     interval: 2
-  Disks:
+  HDDs:
     interface:
       id: truenas
       channel: disks
+      include:
+        type: HDD
+    interval: 30
+  SSDs:
+    interface:
+      id: truenas
+      channel: disks
+      include:
+        type: SSD
     interval: 30
 
 
@@ -60,7 +69,7 @@ fans:
       channel: fan1
     min: 15
     algorithms: &intake_algorithms
-      Disks: PID(sensors[Disks], 40)
+      HDDs: PID(sensors[HDDs], 40)
       CPU: LinearDecrease(Quadratic(sensors[CPU], 70,80))
       Match Exhaust: fans.Exhaust + 10
   Intake 2:

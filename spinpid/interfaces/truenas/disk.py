@@ -1,27 +1,58 @@
-from middlewared.client import Client
+from typing import Optional, Iterable, Union
 
+from middlewared.client import Client
+from pydantic import BaseModel
+from typing_extensions import TypedDict
+
+from spinpid.interfaces.disk import Disk, DiskTemperaturesSource, DiskError
 from spinpid.interfaces.sensor import Temperature
 from spinpid.interfaces.truenas.middleware import TrueNASClient
-from spinpid.interfaces.disk import Disk, DiskTemperaturesSource, DiskError
 
+FilterValue = Union[str, list[str]]
+QueryFilter = tuple[str, str, FilterValue]
+class DiskMatcher(TypedDict, total=False):
+    type: FilterValue
+    serial: FilterValue
+    bus: FilterValue
+    name: FilterValue
+
+class DiskSelector(BaseModel):
+    include: Optional[DiskMatcher] = None
+    exclude: Optional[DiskMatcher] = None
+
+    def build_filters(self) -> Iterable[QueryFilter]:
+        for props, strOp, listOp in (
+            (self.include, '=', 'in'),
+            (self.exclude, '!=', 'nin')
+        ):
+            if props:
+                for field, value in props.items():
+                    if isinstance(value, str):
+                        yield field, strOp, value
+                    elif isinstance(value, list):
+                        yield field, listOp, ','.join(value)
+                    else:
+                        raise ValueError(f"Unknown value type {type(value)} for field {field}")
 
 class TrueNASDiskTemperaturesSource(DiskTemperaturesSource, TrueNASClient):
 
-    def get_all_disk_names(self):
-        # return all disks with smart enabled
-        return (
-            d['name'] for d in self.middleware.call('disk.query', [
+    def __init__(self, selector: DiskSelector, **kwargs) -> None:
+        super().__init__(**kwargs)
+        self.filters = [
             ('name', '!=', None),
-            ('togglesmart', '=', True)
-        ])
-        )
+            # smart needs to be enabled for temperature
+            ('togglesmart', '=', True),
+            *selector.build_filters()
+        ]
+
+    def get_all_disk_names(self):
+        # TODO: cache?
+        return (d['name'] for d in self.middleware.call('disk.query', self.filters))
 
     async def get_all_disks(self):
-        devices = self.middleware.call("device.get_disks")
         return (
             TrueNASDisk(device_name, self.middleware)
             for device_name in self.get_all_disk_names()
-            if device_name in devices
         )
 
 

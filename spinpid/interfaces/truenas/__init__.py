@@ -17,8 +17,9 @@ class TrueNAS(SensorInterface):
 
     def get_sensor(self, channel: str, **kwargs) -> TemperatureSensor:
         if channel in ('disk', 'disks'):
-            from spinpid.interfaces.truenas.disk import TrueNASDiskTemperaturesSource
-            return MeanTemperatureSensor(TrueNASDiskTemperaturesSource(self.middleware))
+            from spinpid.interfaces.truenas.disk import TrueNASDiskTemperaturesSource, DiskSelector
+            selector = DiskSelector(**kwargs)
+            return MeanTemperatureSensor(TrueNASDiskTemperaturesSource(selector=selector, middleware=self.middleware))
         if channel == 'cpu':
             from spinpid.interfaces.truenas.cpu import TrueNASCPUTemperaturesSource
             return MaxTemperatureSensor(TrueNASCPUTemperaturesSource(self.middleware), label = 'CPU')
