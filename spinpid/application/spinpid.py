@@ -33,6 +33,8 @@ def parse():
     parser = ArgumentParser(formatter_class=RawDescriptionHelpFormatter, epilog=''.join(format_available_algorithms()))
     parser.add_argument('--config', '-c', action='store', type=FileType('r', encoding='UTF-8'), default='spinpid.yaml',
                         help="Configuration file to use (defaults to spinpid.yaml)")
+    parser.add_argument('--print-config', action='store_true',
+                        help="Print the loaded configuration and exit")
     parser.add_argument('--dry-run', '-n', action='store_true',
                         help="Don't adjust the fans at all, just print what would have been done.")
     parser.add_argument('--verbose', '-v', action='count', dest='verbosity', default=0,
@@ -150,8 +152,10 @@ if __name__ == '__main__':
             sys.stderr.write("\n\nThere were errors importing the specified device drivers.\n"
                              "If the names are correct, you may need to install additional dependencies.\n\n")
         sys.exit(1)
-    if args.verbosity > 2:
+    if args.print_config or args.verbosity > 2:
         logger.debug("Loaded config: %s", config)
+    if args.print_config:
+        sys.exit(0)
     spinPid = SpinPid(args, config)
     logger.debug(f"ARGS: {args}")
     spinPid.run()
