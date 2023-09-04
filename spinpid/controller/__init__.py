@@ -3,9 +3,10 @@ from __future__ import annotations
 import asyncio
 import logging
 from asyncio import sleep, CancelledError, ensure_future, create_task
-from datetime import datetime, timedelta
+from datetime import timedelta
+from graphlib import TopologicalSorter
 from itertools import chain
-from typing import Callable, Awaitable, Optional
+from typing import Callable, Awaitable, Optional, Iterable, Generator
 
 from .algorithm import Expression, AlgorithmContext
 from .values import LastKnownValues
@@ -17,47 +18,90 @@ from ..util.asyncio import raise_exceptions
 
 logger = logging.getLogger(__name__)
 
-class Sensor:
-    name: str
+class PubSubValue:
+    def __init__(self, name: str, **kwargs):
+        super().__init__(**kwargs)
+        self.name = name
+        self.needs_update = True
+        self.subscribers: set[PubSubValue] = set()
 
+    def subscribe(self, subscriber: PubSubValue):
+        self.subscribers.add(subscriber)
+
+    def publish_value_update(self, needs_update: bool = False):
+        self.needs_update = needs_update
+        for subscriber in self.subscribers:
+            logger.debug(f"[{self.name}] Publishing update to {subscriber.name}")
+            subscriber.publish_value_update(needs_update=True)
+
+
+class Sensor(PubSubValue):
     temperature_sensor: TemperatureSensor
 
     interval: timedelta
-
-    last_update: datetime
 
     last_temperature: Optional[Temperature] = None
 
     def __init__(self, name, temperature_sensor: TemperatureSensor, interval: timedelta,
                  last_known_values: LastKnownValues) -> None:
-        self.name = name
+        super().__init__(name=name)
         self.temperature_sensor = temperature_sensor
         self.interval = interval
-        self.last_update = datetime.min
         self.last_known_values = last_known_values
 
     async def setup(self) -> TearDown:
-        pass
+        # As a quick fix update in setup to ensure that sensors have a last value. We can do better than that.
+        await self.update()
+
+        async def teardown():
+            pass
+        return teardown
 
     async def update(self) -> None:
         temperature = await self.temperature_sensor.get_temperature()
         self.last_temperature = temperature
-        self.last_update = datetime.now()
         self.last_known_values.set_sensor_temperature(self.name, temperature)
-        logger.debug(f"[{self.name}] Updated temperature to {temperature}°C")
+        logger.debug(f"[Sensor {self.name}] Updated temperature to {temperature}°C")
+        self.publish_value_update()
 
-    @property
-    def needs_update(self) -> bool:
-        return self.last_update + self.interval < datetime.now()
+    async def run(self):
+        while True:
+            await self.update()
+            await sleep(self.interval.total_seconds())
 
-class FanController:
+    def create_task(self):
+        return create_task(self.run(), name=f"Update sensor {self.name}")
+
+
+class FanAlgorithm(PubSubValue):
+    def __init__(self, name: str, fan_name: str, expression: Expression) -> None:
+        super().__init__(name=name)
+        self.fan_name = fan_name
+        self.expression = expression
+
+        self.referenced_sensors = frozenset(expression.referenced_sensors or ())
+        self.referenced_fans = frozenset(expression.referenced_fans or ())
+
+        self._value = None
+
+    def value(self):
+        if self.needs_update:
+            self._value = self.expression.value()
+            logger.debug(f"[Algorithm {self.fan_name}/{self.name}] Update value {self._value}")
+            self.publish_value_update()
+        else:
+            logger.debug(f"[Algorithm {self.fan_name}/{self.name}] Returning cached value {self._value}")
+        return self._value
+
+
+class FanController(PubSubValue):
 
     def __init__(self, name: str,
                  fan_zone: FanZone,
-                 algorithms: dict[str, Expression],
+                 algorithms: frozenset[FanAlgorithm],
                  context: AlgorithmContext,
                  last_known_values: LastKnownValues) -> None:
-        self.name = name
+        super().__init__(name=name)
         self.fan_zone = fan_zone
         self.algorithms = algorithms
         self.context = context
@@ -68,16 +112,14 @@ class FanController:
         self.keep_running = True
 
     def calculate_duty(self) -> int:
-        raw_duties: dict[str, int] = {}
         highest_alg, highest_duty = None, -1
-        for [alg_id, alg] in self.algorithms.items():
-            raw_duty = alg.value()
-            raw_duties[alg_id] = raw_duty
+        for alg in self.algorithms:
+            raw_duty = alg.expression.value()
             if raw_duty > highest_duty:
-                highest_alg, highest_duty = alg_id, raw_duty
+                highest_alg, highest_duty = alg, raw_duty
 
         duty = clamp(highest_duty, self.min_duty, self.max_duty)
-        logger.debug(f"[{self.name}] Algorithm {highest_alg} returned {highest_duty} -> {duty}")
+        logger.debug(f"[Fan {self.name}] Algorithm {highest_alg.name} returned {highest_duty} -> {duty}")
         return duty
 
     async def setup(self) -> None:
@@ -89,23 +131,45 @@ class FanController:
         self.last_known_values.set_fan_duty(self.name, duty)
         await self.fan_zone.set_duty(duty)
         await self.fan_zone.update()
-
+        self.publish_value_update()
 
 Interfaces = dict[str, Interface]
 Sensors = dict[str, Sensor]
 Fans = dict[str, FanController]
 
+def sorted_fan_groups(fans: Fans) -> Generator[frozenset[FanController]]:
+    ts = TopologicalSorter({
+        fan_id: { fan for alg in fan.algorithms for fan in alg.referenced_fans } for fan_id, fan in fans.items()
+    })
+    ts.prepare()
+    while ts.is_active():
+        fan_ids = ts.get_ready()
+        fan_group = [fans[fan_id] for fan_id in fan_ids]
+        yield frozenset(fan_group)
+        ts.done(*fan_ids)
+
 
 class Controller:
     interface_teardowns: dict[str, TearDown]
 
-    def __init__(self, interfaces: Interfaces, sensors: Sensors, fans: Fans, values: LastKnownValues):
+    def __init__(self, interfaces: Interfaces, sensors: Sensors, fans: Fans, last_known_values: LastKnownValues):
         self.interfaces = interfaces
         self.sensors = sensors
         self.fans = fans
-        self.values = values
+        self.last_known_values = last_known_values
+
+        self.fans_ordered = tuple(sorted_fan_groups(fans))
+        logger.info("Will update fans in this order: %r", self.fans_ordered)
 
         self.keep_running = True
+
+        for fan in fans.values():
+            for alg in fan.algorithms:
+                for sensor_id in alg.referenced_sensors:
+                    sensors[sensor_id].subscribe(alg)
+                for fan_id in alg.referenced_fans:
+                    fans[fan_id].subscribe(alg)
+                alg.subscribe(fan)
 
     def stop(self) -> None:
         self.keep_running = False
@@ -123,29 +187,26 @@ class Controller:
         await asyncio.wait(tasks)
         raise_exceptions(tasks, logger)
 
-    async def update_sensors(self) -> None:
-        tasks = [
-            create_task(sensor.update(), name=f"Update sensor {sensor.name}")
-            for sensor in self.sensors.values()
-            if sensor.needs_update
-        ]
-        await asyncio.wait(tasks)
-        raise_exceptions(tasks, logger)
-
     async def update_fans(self) -> None:
-        tasks = [
-            create_task(fan.update(), name=f"Update fan {fan.name}")
-            for fan in self.fans.values()
-        ]
-        await asyncio.wait(tasks)
-        raise_exceptions(tasks, logger)
+        for group_id, fan_group in enumerate(self.fans_ordered):
+            pending_fans = [fan for fan in fan_group if fan.needs_update]
+            if not pending_fans:
+                logger.debug('No fans need updating in Fan Group %d', group_id)
+                continue
+
+            tasks = [
+                create_task(fan.update(), name=f"Update fan {fan.name}")
+                for fan in pending_fans
+            ]
+            await asyncio.wait(tasks)
+            raise_exceptions(tasks, logger)
 
     async def run(self, cycle_callback: Callable[['Controller'], Awaitable] = None) -> None:
         try:
+            sensor_update_tasks = [sensor.create_task() for sensor in self.sensors.values()]
             sleep_seconds = min(sensor.interval for sensor in self.sensors.values()).total_seconds()
             while self.keep_running:
-                await self.update_sensors()
-                # TODO: get changed sensors
+                raise_exceptions(sensor_update_tasks, logger)
 
                 await self.update_fans()
 

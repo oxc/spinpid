@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import logging
 
-from . import FanController, Expression, Controller, Interfaces, Sensors, Sensor, Fans
+from . import FanController, Expression, Controller, Interfaces, Sensors, Sensor, Fans, FanAlgorithm
 from .algorithm import AlgorithmContext
 from .algorithm.parser import AlgorithmParser
 from .values import LastKnownValues
@@ -71,12 +71,12 @@ def build_fans(
 
         context = AlgorithmContext(min_duty=config.min_duty, max_duty=config.max_duty)
 
-        algorithms: dict[str, Expression] = {}
+        algorithms: set[FanAlgorithm] = set()
         for alg_id, algorithm in config.algorithms.items():
-            algorithm = algorithm_parser.parse(algorithm, context, last_known_values,
+            expression = algorithm_parser.parse(algorithm, context, last_known_values,
                                                filename=f"<fan {fan_id} algorithm {alg_id}>")
-            algorithms[alg_id] = algorithm
-        fan_controller = FanController(fan_id, fan_zone, algorithms, context, last_known_values)
+            algorithms.add(FanAlgorithm(name=alg_id, fan_name=fan_id, expression=expression))
+        fan_controller = FanController(fan_id, fan_zone, frozenset(algorithms), context, last_known_values)
         result[fan_id] = fan_controller
 
     return result
