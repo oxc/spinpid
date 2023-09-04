@@ -114,18 +114,11 @@ class Value:
         self.value = value
         self.stale = stale
 
-    def _format_value(self, width: int) -> str:
+    def format(self, width: int) -> str:
         value = self.value if self.value is not None else 'N/A'
         if isinstance(value, float):
             return f"{value:#{width}.2f}"
         return f"{value:>{width}}"
-
-    def format(self, width: int) -> str:
-        value = self._format_value(width)
-        if have_ansi:
-            return ansi_wrap(value, color='white', bold=not self.stale)
-        else:
-            return value if not self.stale else f"({value})"
 
 
 Value.NONE = Value('', stale=False)
@@ -148,15 +141,20 @@ class Column(BaseChildElement, LabelledTableElement):
     @value.setter
     def value(self, value: Value) -> None:
         self._value = value
-        value_len = len(self.value._format_value(self.width))
+        value_len = len(value.format(self.width))
         if value_len > self._max_encountered_width:
             self._max_encountered_width = value_len
             self._trigger_recalculate_width()
 
     def pop_value(self) -> str:
-        value = self._value.format(self.width)
+        value = self._value
         self._value = Value.NONE
-        return value
+        formatted_value = value.format(self.width)
+        if have_ansi:
+            formatted_value = ansi_wrap(formatted_value, color='white', bright=True) if not value.stale else formatted_value
+            return f" {formatted_value} "
+        else:
+            return f" {formatted_value} " if not value.stale else f"({formatted_value})"
 
     def _calculate_width(self) -> int:
         lenlabel = len(self.label)
@@ -221,7 +219,7 @@ class TablePrinter(BaseTableParent[ColumnGroup]):
         self._print('┡━' + '━╇━'.join('━┿━'.join('━' * column.width for column in group) for group in self) + '━┩')
 
     def _print_values(self) -> None:
-        self._print('│ ' + ' │ '.join(' ┊ '.join(column.pop_value() for column in group) for group in self) + ' │')
+        self._print('│' + '│'.join('┊'.join(column.pop_value() for column in group) for group in self) + '│')
 
     def _print(self, s: str, **kwargs: Any) -> None:
         print(s, file=self._out, **kwargs)
