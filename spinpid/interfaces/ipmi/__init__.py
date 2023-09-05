@@ -7,4 +7,4 @@ class IPMI(IPMIFanInterface, SensorInterface):
     def get_sensor(self, channel: str, **kwargs) -> TemperatureSensor:
         if channel == 'system':
             from spinpid.interfaces.ipmi.cpu import IPMIToolCPUSource
-            return MaxTemperatureSensor(IPMIToolCPUSource(self.ipmitool, "CPU Temp", "PCH Temp"), "Max System")
+            return MaxTemperatureSensor(IPMIToolCPUSource(self.ipmitool, "CPU Temp", "PCH Temp"), "Sys")

@@ -33,6 +33,7 @@ sensors:
       include:
         type: HDD
     interval: 30
+    show_single_values: true
   SSDs:
     interface:
       id: truenas
@@ -40,7 +41,7 @@ sensors:
       include:
         type: SSD
     interval: 30
-
+    show_single_values: true
 
 fans:
   CPU:

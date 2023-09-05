@@ -36,12 +36,12 @@ class LastKnownValues:
             raise ValueError(f"Unknown sensor id {sensor_id}")
         self.sensor_temperature_values[sensor_id] = TemperatureValue(temperature)
 
-    def get_sensor_display_values(self) -> Iterable[tuple[str, TableValue]]:
+    def get_sensor_display_values(self) -> Iterable[tuple[str, Iterable[tuple[str, TableValue]]]]:
         for sensor_id, value in self.sensor_temperature_values.items():
             if value is not None:
                 stale = value.was_displayed
                 value.was_displayed = True
-                yield sensor_id, TableValue(value.value, stale=stale)
+                yield sensor_id, [(l, TableValue(v, stale=stale)) for l, v in value.value]
 
     def get_fan_display_values(self) -> Iterable[tuple[str, TableValue]]:
         for fan_id, value in self.fan_duty_values.items():

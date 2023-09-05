@@ -50,7 +50,8 @@ def build_sensors(sensors_config: SensorsConfig, interfaces: Interfaces, last_kn
             sensor_args['interval'] = config.interval
         logger.debug("Configuring sensor %s from %s with args %s", sensor_id, interface, sensor_args)
         sensor = interface.get_sensor(**sensor_args)
-        result[sensor_id] = Sensor(sensor_id, sensor, config.interval, last_known_values)
+        result[sensor_id] = Sensor(sensor_id, sensor, last_known_values=last_known_values,
+                                   interval=config.interval, show_single_values=config.show_single_values)
     return result
 
 

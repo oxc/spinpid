@@ -24,6 +24,7 @@ class InterfaceChannelRef(TypedDict):
 class SensorConfig(BaseModel):
     interface: Union[str, InterfaceChannelRef]
     interval: timedelta
+    show_single_values: bool = False
 
 
 class FanConfig(BaseModel):

@@ -15,6 +15,7 @@ from ..interfaces.fan import FanZone
 from ..interfaces.sensor import Temperature, TemperatureSensor
 from ..util import clamp
 from ..util.asyncio import raise_exceptions
+from ..util.table import LabelledValue, LabelledValueGroup, Value as TableValue
 
 logger = logging.getLogger(__name__)
 
@@ -42,12 +43,14 @@ class Sensor(PubSubValue):
 
     last_temperature: Optional[Temperature] = None
 
-    def __init__(self, name, temperature_sensor: TemperatureSensor, interval: timedelta,
-                 last_known_values: LastKnownValues) -> None:
+    def __init__(self, name, temperature_sensor: TemperatureSensor,
+                 last_known_values: LastKnownValues,
+                 interval: timedelta, show_single_values: bool) -> None:
         super().__init__(name=name)
         self.temperature_sensor = temperature_sensor
-        self.interval = interval
         self.last_known_values = last_known_values
+        self.interval = interval
+        self.show_single_values = show_single_values
 
     async def setup(self) -> TearDown:
         # As a quick fix update in setup to ensure that sensors have a last value. We can do better than that.
@@ -72,6 +75,17 @@ class Sensor(PubSubValue):
     def create_task(self):
         return create_task(self.run(), name=f"Update sensor {self.name}")
 
+    def get_log_state(self) -> Iterable[LabelledValue]:
+        value = self.last_known_values.sensor_temperature_values[self.name]
+        if value is not None:
+            stale = value.was_displayed
+            value.was_displayed = True
+            temp = value.value
+            if self.show_single_values:
+                for label, temp in temp:
+                    yield label, TableValue(f"{temp}", stale=stale)
+            else:
+                yield temp.label, TableValue(f"{temp}", stale=stale)
 
 class FanAlgorithm(PubSubValue):
     def __init__(self, name: str, fan_name: str, expression: Expression) -> None:
@@ -132,6 +146,15 @@ class FanController(PubSubValue):
         await self.fan_zone.set_duty(duty)
         await self.fan_zone.update()
         self.publish_value_update()
+
+    def get_log_state(self) -> Iterable[LabelledValue]:
+        value = self.last_known_values.fan_duty_values[self.name]
+        if value is not None:
+            stale = value.was_displayed
+            value.was_displayed = True
+            yield 'Duty', TableValue(f"{value.value}%", stale=stale)
+            for fan in self.fan_zone.fans:
+                yield fan.name, TableValue(f"{fan.rpm}", stale=False)
 
 Interfaces = dict[str, Interface]
 Sensors = dict[str, Sensor]
@@ -225,3 +248,9 @@ class Controller:
                     await teardown()
                 except Exception as e:
                     logger.warning("Exception in interface %s teardown: %s", iid, e, exc_info=True)
+
+    def get_log_state(self) -> Iterable[LabelledValueGroup]:
+        for sensor in self.sensors.values():
+            yield sensor.name, sensor.get_log_state()
+        for fan in self.fans.values():
+            yield f"Fan {fan.name}", fan.get_log_state()

@@ -9,8 +9,7 @@ try:
 except ImportError:
     have_ansi = False
 
-__all__ = ['TablePrinter', 'Value']
-
+__all__ = ['TablePrinter', 'Value', 'LabelledValue', 'LabelledValueGroup']
 
 class BaseTableElement:
     _width: Optional[int]
@@ -188,6 +187,8 @@ class ColumnGroup(BaseChildElement, LabelledTableElement, BaseTableParent[Column
                 column._width = column.width + extra_padding
         return width
 
+LabelledValue = Tuple[str, Value]
+LabelledValueGroup = Tuple[str, Iterable[LabelledValue]]
 
 class TablePrinter(BaseTableParent[ColumnGroup]):
     def __init__(self, out=sys.stdout, redraw_header_after=None):
@@ -225,7 +226,7 @@ class TablePrinter(BaseTableParent[ColumnGroup]):
         print(s, file=self._out, **kwargs)
         self._out.flush()
 
-    def print_values(self, values: Iterable[Tuple[str, Iterable[Tuple[str, Value]]]]) -> None:
+    def print_values(self, values: Iterable[LabelledValueGroup]) -> None:
         for i, (group_label, group_values) in enumerate(values):
             group = self[i]
             group.label = group_label

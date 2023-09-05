@@ -91,8 +91,11 @@ class MeanTemperatureSensor(TemperatureSensor):
         self.temps_source = temps_source
         self.label = label
 
-    async def get_temperature(self) -> AggregatedTemperature:
+    async def get_temperature(self) -> Temperature:
         temps = list(await self.temps_source.get_all_temperatures())
         s = fsum(temps)
-        mean = s / len(temps)
+        count = len(temps)
+        if count == 1:
+            return temps[0]
+        mean = s / count
         return AggregatedTemperature(mean, self.label, temps)
