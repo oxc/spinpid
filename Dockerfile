@@ -55,3 +55,7 @@ COPY requirements.txt .
 RUN pip install -r requirements.txt
 
 COPY . .
+
+ENV PYTHONPATH="${PYTHONPATH}:${PWD}" EXTRA_ARGS=""
+
+CMD ./spinpid.sh ${EXTRA_ARGS}
