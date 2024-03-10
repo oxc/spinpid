@@ -1,5 +1,5 @@
-ARG NVIDIA_SMI_VERSION=515.65.01-1
-ARG MIDDLEWARED_TAG=TS-22.12.3.3
+ARG NVIDIA_SMI_VERSION=535.54.03-1
+ARG MIDDLEWARED_TAG=TS-23.10.2
 
 FROM debian:bullseye as builder
 ARG MIDDLEWARED_TAG
@@ -40,7 +40,7 @@ RUN \
         ipython3 vim rsync \
         python pip \
         liquidctl \
-        python3-prctl python3-ws4py python3-websocket \
+        python3-prctl\
         ipmitool \
         nvidia-alternative=${NVIDIA_SMI_VERSION} libnvidia-ml1=${NVIDIA_SMI_VERSION} nvidia-smi=${NVIDIA_SMI_VERSION}
 
@@ -50,6 +50,10 @@ COPY --from=builder /middlewared/src/middlewared/dist/middlewared.client-*.whl /
 RUN ls -l /middlewared/ && pip install /middlewared/middlewared.client-*.whl && rm -r /middlewared/
 
 WORKDIR /spinpid
+
+COPY requirements-middleware.txt .
+RUN pip install -r requirements-middleware.txt
+
 
 COPY requirements.txt .
 RUN pip install -r requirements.txt
