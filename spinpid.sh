@@ -1,3 +1,3 @@
 #!/bin/sh
 
-exec python3.9 -m spinpid.application.spinpid "$@"
+exec python3 -m spinpid.application.spinpid "$@"
