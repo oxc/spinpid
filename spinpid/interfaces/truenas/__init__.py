@@ -2,7 +2,7 @@ from spinpid.interfaces import SensorInterface, TemperatureSensor
 
 from spinpid.interfaces.sensor import MeanTemperatureSensor, MaxTemperatureSensor
 
-from middlewared.client import Client
+from truenas_api_client import Client
 
 class TrueNAS(SensorInterface):
     def __init__(self, **kwargs) -> None:

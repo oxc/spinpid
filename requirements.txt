@@ -1,3 +1,5 @@
+truenas_api_client
+
 PyYAML
 pydantic
 typing-extensions

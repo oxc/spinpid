@@ -1,15 +1,15 @@
-ARG NVIDIA_SMI_VERSION=545.23.08-1
-ARG MIDDLEWARED_TAG=TS-24.04.1.1
+ARG NVIDIA_SMI_VERSION=550.127.05-1
+ARG API_CLIENT_TAG=TS-24.10.2.1
 
 FROM debian:bookworm as builder
-ARG MIDDLEWARED_TAG
+ARG API_CLIENT_TAG
 
 # Fail fast on errors or unset variables
 SHELL ["/bin/bash", "-eux", "-o", "pipefail", "-c"]
 
 RUN <<EOF
   apt-get -q update
-  apt-get install -qy --no-install-recommends curl gpg git python3-wheel python3-build python3-venv ca-certificates
+  apt-get install -qy --no-install-recommends curl gpg git python3-wheel python3-build python3-venv pip ca-certificates
   curl -fSsL https://developer.download.nvidia.com/compute/cuda/repos/debian12/x86_64/3bf863cc.pub \
     | gpg --dearmor \
     | tee /usr/share/keyrings/nvidia-drivers.gpg > /dev/null 2>&1
@@ -17,16 +17,9 @@ RUN <<EOF
     | tee /etc/apt/sources.list.d/nvidia-drivers.list
 EOF
 
-ENV MIDDLEWARED_ROOT=/middlewared
+WORKDIR /truenas_api_client
 
-RUN git clone https://github.com/truenas/middleware/ --depth 1 --branch ${MIDDLEWARED_TAG} ${MIDDLEWARED_ROOT}
-
-WORKDIR ${MIDDLEWARED_ROOT}/src/middlewared
-
-RUN <<EOF
-    mv setup_client.py setup.py
-    python3 -m build --wheel
-EOF
+RUN pip wheel "truenas_api_client@git+https://github.com/truenas/api_client.git@${API_CLIENT_TAG}"
 
 FROM debian:bookworm
 ARG NVIDIA_SMI_VERSION
@@ -66,12 +59,8 @@ RUN python3 -m venv --system-site-packages ${VIRTUAL_ENV}
 # run python and pip from venv
 ENV PATH="${VIRTUAL_ENV}/bin:${PATH}"
 
-COPY --from=builder /middlewared/src/middlewared/dist/middlewared.client-*.whl /middlewared/
-RUN ls -l /middlewared/ && pip install /middlewared/middlewared.client-*.whl && rm -r /middlewared/
-
-
-COPY requirements-middleware.txt .
-RUN pip install -r requirements-middleware.txt
+COPY --from=builder /truenas_api_client/*.whl /truenas_api_client/
+RUN ls -l /truenas_api_client/ && pip install /truenas_api_client/*.whl && rm -r /truenas_api_client/
 
 
 COPY requirements.txt .
