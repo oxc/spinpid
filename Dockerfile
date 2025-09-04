@@ -1,7 +1,8 @@
-ARG NVIDIA_SMI_VERSION=550.144.03-1
+ARG NVIDIA_SMI_VERSION=550.142
 ARG API_CLIENT_TAG=TS-25.04.2.4
 
 FROM debian:bookworm AS builder
+ARG NVIDIA_SMI_VERSION
 ARG API_CLIENT_TAG
 
 # Fail fast on errors or unset variables
@@ -9,17 +10,21 @@ SHELL ["/bin/bash", "-eux", "-o", "pipefail", "-c"]
 
 RUN <<EOF
   apt-get -q update
-  apt-get install -qy --no-install-recommends curl gpg git python3-wheel python3-build python3-venv pip ca-certificates
-  curl -fSsL https://developer.download.nvidia.com/compute/cuda/repos/debian12/x86_64/3bf863cc.pub \
-    | gpg --dearmor \
-    | tee /usr/share/keyrings/nvidia-drivers.gpg > /dev/null 2>&1
-  echo 'deb [signed-by=/usr/share/keyrings/nvidia-drivers.gpg] https://developer.download.nvidia.com/compute/cuda/repos/debian12/x86_64/ /' \
-    | tee /etc/apt/sources.list.d/nvidia-drivers.list
+  apt-get install -qy --no-install-recommends curl git python3-wheel python3-build python3-venv pip
 EOF
 
 WORKDIR /truenas_api_client
 
 RUN pip wheel "truenas_api_client@git+https://github.com/truenas/api_client.git@${API_CLIENT_TAG}"
+
+WORKDIR /
+
+RUN <<EOF
+  curl -fSsL https://download.nvidia.com/XFree86/Linux-x86_64/${NVIDIA_SMI_VERSION}/NVIDIA-Linux-x86_64-${NVIDIA_SMI_VERSION}-no-compat32.run \
+    | tee /nvidia-driver.run > /dev/null 2>&1
+EOF
+
+RUN sh /nvidia-driver.run --extract-only --target nvidia
 
 FROM debian:bookworm
 ARG NVIDIA_SMI_VERSION
@@ -28,10 +33,8 @@ SHELL ["/bin/bash", "-eux", "-o", "pipefail", "-c"]
 
 ENV DEBIAN_FRONTEND=noninteractive PIP_PREFER_BINARY=1
 
-RUN apt-get -q update && apt-get install -qy ca-certificates
-
-COPY --from=builder /usr/share/keyrings/nvidia-drivers.gpg /usr/share/keyrings/nvidia-drivers.gpg
-COPY --from=builder /etc/apt/sources.list.d/nvidia-drivers.list /etc/apt/sources.list.d/nvidia-drivers.list
+COPY --from=builder /nvidia/libnvidia-ml.so.${NVIDIA_SMI_VERSION} /usr/lib/x86_64-linux-gnu/
+COPY --from=builder /nvidia/nvidia-smi /usr/bin/nvidia-smi
 
 RUN <<EOF
     sed -i -e's/ main/ main contrib non-free/g' /etc/apt/sources.list.d/debian.sources
@@ -42,8 +45,7 @@ RUN <<EOF
         python3 python3-venv pip \
         liquidctl \
         python3-prctl \
-        ipmitool \
-        nvidia-alternative=${NVIDIA_SMI_VERSION} libnvidia-ml1=${NVIDIA_SMI_VERSION} nvidia-smi=${NVIDIA_SMI_VERSION}
+        ipmitool
 EOF
 
 RUN <<EOF
