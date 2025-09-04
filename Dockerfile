@@ -1,7 +1,7 @@
 ARG NVIDIA_SMI_VERSION=550.144.03-1
 ARG API_CLIENT_TAG=TS-25.04.2.4
 
-FROM debian:bookworm as builder
+FROM debian:bookworm AS builder
 ARG API_CLIENT_TAG
 
 # Fail fast on errors or unset variables
@@ -23,6 +23,8 @@ RUN pip wheel "truenas_api_client@git+https://github.com/truenas/api_client.git@
 
 FROM debian:bookworm
 ARG NVIDIA_SMI_VERSION
+
+SHELL ["/bin/bash", "-eux", "-o", "pipefail", "-c"]
 
 ENV DEBIAN_FRONTEND=noninteractive PIP_PREFER_BINARY=1
 
@@ -51,7 +53,7 @@ EOF
 
 WORKDIR /spinpid
 
-ENV VIRTUAL_ENV=/spindpid/venv
+ENV VIRTUAL_ENV=/spinpid/venv
 
 # create virtual environment to manage packages
 RUN python3 -m venv --system-site-packages ${VIRTUAL_ENV}
