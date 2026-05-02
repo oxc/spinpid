@@ -4,7 +4,7 @@ from truenas_api_client import Client
 from pydantic import BaseModel
 from typing_extensions import TypedDict
 
-from spinpid.interfaces.disk import Disk, DiskTemperaturesSource, DiskError
+from spinpid.interfaces.disk import Disk, DiskTemperaturesSource, NoActiveDisksError, DiskError
 from spinpid.interfaces.sensor import Temperature
 from spinpid.interfaces.truenas.middleware import TrueNASClient
 
@@ -40,14 +40,12 @@ class TrueNASDiskTemperaturesSource(DiskTemperaturesSource, TrueNASClient):
         super().__init__(**kwargs)
         self.filters = [
             ('name', '!=', None),
-            # smart needs to be enabled for temperature
-            ('togglesmart', '=', True),
             *selector.build_filters()
         ]
 
     def get_all_disk_names(self):
         # TODO: cache?
-        return (d['name'] for d in self.middleware.call('disk.query', self.filters))
+        return [d['name'] for d in self.middleware.call('disk.query', self.filters)]
 
     async def get_all_disks(self):
         return (
@@ -55,13 +53,27 @@ class TrueNASDiskTemperaturesSource(DiskTemperaturesSource, TrueNASClient):
             for device_name in self.get_all_disk_names()
         )
 
+    async def get_all_temperatures(self):
+        names = self.get_all_disk_names()
+        if not names:
+            raise NoActiveDisksError("Found no active disks, unable to determine temperature")
+        temps = self.middleware.call("disk.temperatures", names)
+        result = [
+            Temperature(temp, name)
+            for name, temp in temps.items()
+            if temp is not None
+        ]
+        result.sort(key=lambda t: t.label)
+        return iter(result)
+
 
 class TrueNASDisk(Disk, TrueNASClient):
     def __init__(self, device_name: str, middleware: Client):
         super().__init__(device_name=device_name, middleware=middleware)
 
     async def get_temperature(self) -> Temperature:
-        temp = self.middleware.call("disk.temperature", self.device_name, {'powermode': 'STANDBY'})
-        if not temp:
+        temps = self.middleware.call("disk.temperatures", [self.device_name])
+        temp = temps.get(self.device_name)
+        if temp is None:
             raise DiskError(f"Unable to determine temperature for disk {self.device_name}")
         return Temperature(temp, self.device_name)
