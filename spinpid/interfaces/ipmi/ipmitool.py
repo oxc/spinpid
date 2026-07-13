@@ -1,7 +1,5 @@
 import asyncio
 import logging
-import os
-import tempfile
 from io import StringIO
 from typing import Iterable, Optional
 
@@ -43,6 +41,11 @@ class IPMITool:
     once and feed it commands over stdin, reading each response up to the
     ``ipmitool> `` prompt. Commands are serialised through a lock (the shell is
     a single serial channel) and the process is respawned on demand if it dies.
+
+    The shell also parses the SDR repository once, on the first ``sdr`` command,
+    and keeps it in memory for the rest of its life, so there is no need to
+    maintain an external ``-S`` SDR cache; live sensor *readings* are still
+    fetched from the BMC on every command.
     """
 
     ipmitool = Command('ipmitool')
@@ -51,48 +54,13 @@ class IPMITool:
     _COMMAND_TIMEOUT = 15  # seconds to wait for a single command's response
 
     def __init__(self) -> None:
-        self._sdr_cache: Optional[str] = None
         self._proc: Optional[asyncio.subprocess.Process] = None
         self._lock = asyncio.Lock()
 
-    async def load_sdr_cache(self) -> None:
-        """Dump the SDR repository to a local cache file once.
-
-        Reading the SDR repository over the in-band KCS interface is slow
-        (byte-at-a-time, hundreds of transactions). Without a cache every
-        `ipmitool sdr` invocation re-reads the whole repository. Dumping it
-        once and passing `-S <file>` on subsequent calls skips that reload;
-        live sensor *readings* are still fetched from the BMC each time, so
-        temperatures and fan RPMs stay current."""
-        fd, path = tempfile.mkstemp(prefix='spinpid-ipmi-sdr-', suffix='.cache')
-        os.close(fd)
-        try:
-            await self.ipmitool.run('sdr', 'dump', path)
-        except BaseException:
-            os.unlink(path)
-            raise
-        self._sdr_cache = path
-        logger.debug("Loaded IPMI SDR cache to %s", path)
-
-    def clear_sdr_cache(self) -> None:
-        if self._sdr_cache is not None:
-            try:
-                os.unlink(self._sdr_cache)
-            except FileNotFoundError:
-                pass
-            self._sdr_cache = None
-
-    @property
-    def _global_args(self) -> tuple[str, ...]:
-        if self._sdr_cache is not None:
-            return ('-S', self._sdr_cache)
-        return ()
-
     async def _start(self) -> None:
-        args = (*self._global_args, 'shell')
-        logger.debug("Starting persistent ipmitool shell: ipmitool %s", ' '.join(args))
+        logger.debug("Starting persistent ipmitool shell")
         self._proc = await asyncio.create_subprocess_exec(
-            self.ipmitool.command, *args,
+            self.ipmitool.command, 'shell',
             stdin=asyncio.subprocess.PIPE,
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.STDOUT,

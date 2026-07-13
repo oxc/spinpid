@@ -93,14 +93,12 @@ class IPMIFanInterface(FanInterface):
             await self.ipmitool.raw('0x30', '0x45', '1', str(mode.value))
 
     async def setup(self) -> TearDown:
-        await self.ipmitool.load_sdr_cache()
         old_mode = await self.get_mode()
         await self.set_mode(FanMode.FULL)
 
         async def teardown() -> None:
             await self.set_mode(old_mode)
             await self.ipmitool.stop()
-            self.ipmitool.clear_sdr_cache()
 
         return teardown
 
