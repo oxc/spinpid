@@ -9,4 +9,7 @@ typing-extensions
 
 liquidctl
 
+# for GPU temp via the NVML library (spinpid.interfaces.nvidia.nvml.NvidiaNVML)
+nvidia-ml-py
+
 humanfriendly

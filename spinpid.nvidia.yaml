@@ -1,6 +1,6 @@
 interfaces:
   gpu:
-    driver: spinpid.interfaces.nvidia.NvidiaSMI
+    driver: spinpid.interfaces.nvidia.nvml.NvidiaNVML
   corsair:
     driver: spinpid.interfaces.liquidctl.LiquidCTL
     name: Corsair Commander Pro
