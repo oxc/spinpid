@@ -99,6 +99,7 @@ class IPMIFanInterface(FanInterface):
 
         async def teardown() -> None:
             await self.set_mode(old_mode)
+            await self.ipmitool.stop()
             self.ipmitool.clear_sdr_cache()
 
         return teardown
