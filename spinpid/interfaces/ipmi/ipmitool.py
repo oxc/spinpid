@@ -52,6 +52,20 @@ class IPMITool:
 
     _PROMPT = b'ipmitool> '
     _COMMAND_TIMEOUT = 15  # seconds to wait for a single command's response
+    _MAX_ATTEMPTS = 4      # transient in-band IPMI errors are retried up to this many times
+
+    # Substrings ipmitool prints on transient in-band failures, typically caused
+    # by another process (e.g. the TrueNAS middleware) hitting /dev/ipmi0 at the
+    # same time and the KCS responses crossing. These are safe to retry.
+    _RETRY_MARKERS = (
+        'unexpected id',
+        'unable to send',
+        'unable to read',
+        'bmc busy',
+        'node busy',
+        'timeout',
+        'insufficient resources',
+    )
 
     def __init__(self) -> None:
         self._proc: Optional[asyncio.subprocess.Process] = None
@@ -102,29 +116,71 @@ class IPMITool:
             buf += chunk
         return buf[:buf.rfind(self._PROMPT)].decode('utf-8', 'replace')
 
-    async def _run(self, command: str) -> str:
-        """Send one command to the persistent shell and return its output.
+    async def _kill(self) -> None:
+        proc, self._proc = self._proc, None
+        if proc is not None:
+            await self._terminate(proc)
 
-        Serialised through ``self._lock`` since the shell is a single channel.
-        A dead shell is respawned on the next call; a hung/failed command kills
-        the shell so it gets respawned rather than left in a bad state."""
-        async with self._lock:
-            if self._proc is None or self._proc.returncode is not None:
-                await self._start()
-            try:
-                self._proc.stdin.write((command + '\n').encode())
-                await self._proc.stdin.drain()
-                out = await asyncio.wait_for(self._read_to_prompt(), self._COMMAND_TIMEOUT)
-            except (asyncio.TimeoutError, IPMIError, OSError):
-                proc, self._proc = self._proc, None
-                if proc is not None:
-                    await self._terminate(proc)
-                raise
+    async def _send_and_read(self, command: str) -> str:
+        """Write one command to the shell and return its output (echo stripped)."""
+        if self._proc is None or self._proc.returncode is not None:
+            await self._start()
+        self._proc.stdin.write((command + '\n').encode())
+        await self._proc.stdin.drain()
+        out = await asyncio.wait_for(self._read_to_prompt(), self._COMMAND_TIMEOUT)
         # the shell echoes the command back as the first output line; drop it
         echo = command + '\n'
         if out.startswith(echo):
             out = out[len(echo):]
         return out
+
+    def _retryable_error(self, command: str, out: str) -> Optional[str]:
+        """Return the offending line if `out` looks like a transient failure.
+
+        For `sdr` commands any line that is not a well-formed 5-field entry is
+        treated as an error (covers desync/BMC error text), so we never feed
+        garbage to the parser. For other commands we match known transient
+        error markers."""
+        lines = [ln for ln in out.splitlines() if ln.strip()]
+        if command.startswith('sdr'):
+            for ln in lines:
+                if len(ln.split('|')) != 5:
+                    return ln.strip()
+            return None
+        low = out.lower()
+        for marker in self._RETRY_MARKERS:
+            if marker in low:
+                return next((ln.strip() for ln in lines if marker in ln.lower()), marker)
+        return None
+
+    async def _run(self, command: str) -> str:
+        """Send one command to the persistent shell and return its output.
+
+        Serialised through ``self._lock`` since the shell is a single channel.
+        Transient in-band errors (e.g. KCS responses crossing with another
+        /dev/ipmi0 user) are retried: first in place, then from a fresh shell
+        to clear any desync. A dead/hung shell is likewise respawned."""
+        async with self._lock:
+            last_error = None
+            for attempt in range(1, self._MAX_ATTEMPTS + 1):
+                try:
+                    out = await self._send_and_read(command)
+                except (asyncio.TimeoutError, IPMIError, OSError) as e:
+                    last_error = str(e) or repr(e)
+                    await self._kill()  # force a fresh shell next attempt
+                else:
+                    error = self._retryable_error(command, out)
+                    if error is None:
+                        return out
+                    last_error = error
+                    # after the first (cheap) in-place retry, respawn to clear desync
+                    if attempt >= 2:
+                        await self._kill()
+                logger.warning("IPMI command %r attempt %d/%d failed: %s",
+                               command, attempt, self._MAX_ATTEMPTS, last_error)
+                if attempt < self._MAX_ATTEMPTS:
+                    await asyncio.sleep(0.05 * attempt)
+        raise IPMIError(f"`ipmitool {command}` failed after {self._MAX_ATTEMPTS} attempts: {last_error}")
 
     async def raw(self, *args: str) -> None:
         await self._run('raw ' + ' '.join(args))
