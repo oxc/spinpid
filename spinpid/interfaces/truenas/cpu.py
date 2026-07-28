@@ -6,7 +6,7 @@ from spinpid.interfaces.truenas.middleware import TrueNASClient
 
 class TrueNASCPUTemperaturesSource(TemperaturesSource, TrueNASClient):
     async def get_all_temperatures(self) -> Iterator[Temperature]:
-        temps: dict[str, float] = self.middleware.call('reporting.cpu_temperatures')
+        temps: dict[str, float] = await self.middleware.call('reporting.cpu_temperatures')
         del temps["cpu"]
         return (
             Temperature(temp, f"CPU {idx}")

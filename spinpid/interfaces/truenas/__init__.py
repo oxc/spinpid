@@ -2,17 +2,17 @@ from spinpid.interfaces import SensorInterface, TemperatureSensor
 
 from spinpid.interfaces.sensor import MeanTemperatureSensor, MaxTemperatureSensor
 
-from truenas_api_client import Client
+from spinpid.interfaces.truenas.middleware import Middleware
 
 class TrueNAS(SensorInterface):
     def __init__(self, **kwargs) -> None:
         super().__init__(**kwargs)
 
-        self.middleware = Client()
+        self.middleware = Middleware()
 
     async def setup(self):
         async def teardown():
-            self.middleware.close()
+            await self.middleware.close()
         return teardown
 
     def get_sensor(self, channel: str, **kwargs) -> TemperatureSensor:
